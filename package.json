@@ -8,7 +8,8 @@
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
     "lint": "oxlint",
-    "lint:fix": "oxlint --fix"
+    "lint:fix": "oxlint --fix",
+    "prepare": "husky"
   },
   "dependencies": {
     "@hono/node-server": "^2.0.11",
@@ -16,6 +17,7 @@
   },
   "devDependencies": {
     "@types/node": "^26.1.1",
+    "husky": "^9.1.7",
     "oxfmt": "^0.60.0",
     "oxlint": "^1.75.0",
     "tsx": "^4.23.0",
