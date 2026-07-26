@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { JSDOM } from "jsdom";
 import { chromium } from "playwright";
 import TurndownService from "turndown";
+import * as z from "zod";
 const app = new Hono();
 
 const browser = await chromium.launch({
@@ -14,15 +15,33 @@ const turndown = new TurndownService({
   codeBlockStyle: "fenced",
 });
 
-app.get("/", async (c) => {
-  const url = c.req.query("url");
-  const output = c.req.query("output");
+const querySchema = z.object({
+  url: z.url({
+    protocol: /^https?$/,
+    error: "'url' must be a valid HTTP or HTTPS URL",
+  }),
+  output: z.enum(["json", "md"]).default("json"),
+});
 
-  if (!url) {
-    return c.json({ error: "Missing url" });
+app.get("/", async (c) => {
+  // Parse params
+  const result = querySchema.safeParse(c.req.query());
+
+  if (!result.success) {
+    return c.json(
+      {
+        error: "Invalid query parameters",
+        issues: result.error.issues,
+      },
+      400,
+    );
   }
 
+  const { url, output } = result.data;
+
+  // Parse page
   const page = await browser.newPage();
+
   try {
     await page.goto(url, {
       waitUntil: "domcontentloaded",
@@ -31,6 +50,7 @@ app.get("/", async (c) => {
 
     const html = await page.content();
 
+    // Convert to md
     const dom = new JSDOM(html, {
       url,
     });
@@ -45,6 +65,7 @@ app.get("/", async (c) => {
 
     const markdown = turndown.turndown(article.content);
 
+    // Return result
     if (output === "md") {
       return c.text(markdown, 200, {
         "Content-Type": "text/markdown; charset=UTF-8",
