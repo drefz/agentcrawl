@@ -1,6 +1,9 @@
 {
   "name": "agentcrawl",
   "type": "module",
+  "imports": {
+    "#/*": "./src/*"
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
@@ -13,10 +16,16 @@
   },
   "dependencies": {
     "@hono/node-server": "^2.0.11",
-    "hono": "^4.12.32"
+    "@mozilla/readability": "^0.6.0",
+    "hono": "^4.12.32",
+    "jsdom": "^29.1.1",
+    "playwright": "^1.62.0",
+    "turndown": "^7.2.4"
   },
   "devDependencies": {
+    "@types/jsdom": "^28.0.3",
     "@types/node": "^26.1.1",
+    "@types/turndown": "^5.0.6",
     "husky": "^9.1.7",
     "oxfmt": "^0.60.0",
     "oxlint": "^1.75.0",

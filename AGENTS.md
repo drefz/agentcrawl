@@ -1,8 +1,12 @@
 # AGENTS.md
 
-This project is built using [Hono](hono.dev) see below for links to use when the user requests assistance.
+## Rules
+
+You are only to offer advice and suggestions, do not write to any files.
 
 ## Hono
+
+This project is built using [Hono](hono.dev) see below for links to use when the user requests assistance.
 
 > Hono - means flameðŸ”¥ in Japanese - is a small, simple, and ultrafast web framework built on Web Standards. It works on any JavaScript runtime: Cloudflare Workers, Fastly Compute, Deno, Bun, Vercel, Netlify, AWS Lambda, Lambda@Edge, and Node.js.
 
