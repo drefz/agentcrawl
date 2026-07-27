@@ -15,7 +15,7 @@ const scraperRoute = new Hono().get("/", validateQuery, async (c) => {
       return errorResponse(c, "CONTENT_NOT_READABLE");
     }
 
-    if (output === "md" && result.data) {
+    if (output === "md") {
       return c.text(result.data.markdown, 200, {
         "Content-Type": "text/markdown; charset=UTF-8",
       });

@@ -22,13 +22,19 @@ type Metadata = {
   contentType: string | null;
 };
 
-type ScrapedPage = {
-  success: boolean;
-  data: {
-    html: string;
-    markdown: string;
-    metadata: Metadata;
-  } | null;
+type ScrapedData = {
+  html: string;
+  markdown: string;
+  metadata: Metadata;
+};
+
+type ScrapedPage = { success: true; data: ScrapedData } | { success: false; data: null };
+
+type LoadedPage = {
+  html: string;
+  finalUrl: string;
+  statusCode: number | null;
+  contentType: string | null;
 };
 
 export class ScrapeTimeoutError extends Error {
@@ -47,8 +53,23 @@ const turndown = new TurndownService({
   codeBlockStyle: "fenced",
 });
 
+const NAVIGATION_TIMEOUT_MS = 30_000;
+
 export async function scrapePage(url: string): Promise<ScrapedPage> {
   const target = await assertPublicHttpUrl(url);
+
+  try {
+    const loadedPage = await loadPage(target);
+    return extractPage(loadedPage);
+  } catch (error) {
+    if (error instanceof errors.TimeoutError) {
+      throw new ScrapeTimeoutError(error);
+    }
+    throw error;
+  }
+}
+
+const loadPage = async (target: URL): Promise<LoadedPage> => {
   const context = await browser.newContext({
     acceptDownloads: false,
     serviceWorkers: "block",
@@ -82,41 +103,24 @@ export async function scrapePage(url: string): Promise<ScrapedPage> {
       await route.continue();
     });
 
-    let statusCode: number | null = null;
-    let contentType: string | null = null;
-
     try {
       const response = await page.goto(target.href, {
         waitUntil: "domcontentloaded",
-        timeout: 30_000,
+        timeout: NAVIGATION_TIMEOUT_MS,
       });
 
-      statusCode = response?.status() ?? null;
-      contentType = (await response?.headerValue("content-type")) ?? null;
+      return {
+        html: await page.content(),
+        finalUrl: page.url(),
+        statusCode: response?.status() ?? null,
+        contentType: (await response?.headerValue("content-type")) ?? null,
+      };
     } catch (error) {
-      if (mainNavigationPolicyError) {
+      if (mainNavigationPolicyError !== undefined) {
         throw mainNavigationPolicyError;
       }
       throw error;
     }
-
-    const html = await page.content();
-    const dom = new JSDOM(html, { url: page.url() });
-    const article = new Readability(dom.window.document).parse();
-    if (!article?.content) {
-      return { success: false, data: null };
-    }
-
-    const document = dom.window.document;
-
-    return {
-      success: true,
-      data: {
-        markdown: turndown.turndown(article.content),
-        html: html,
-        metadata: getMetadata(document, page.url(), statusCode, contentType),
-      },
-    };
   } catch (error) {
     if (error instanceof errors.TimeoutError) {
       throw new ScrapeTimeoutError(error);
@@ -129,7 +133,37 @@ export async function scrapePage(url: string): Promise<ScrapedPage> {
       console.error("Failed to close Playwright context", error);
     }
   }
-}
+};
+
+const extractPage = (loadedPage: LoadedPage): ScrapedPage => {
+  if (!loadedPage.html || !loadedPage.finalUrl) {
+    return { success: false, data: null };
+  }
+
+  const dom = new JSDOM(loadedPage.html, { url: loadedPage.finalUrl });
+  const document = dom.window.document;
+
+  const metadata = getMetadata(
+    document,
+    loadedPage.finalUrl,
+    loadedPage.statusCode,
+    loadedPage.contentType,
+  );
+
+  const article = new Readability(dom.window.document).parse();
+  if (!article?.content) {
+    return { success: false, data: null };
+  }
+
+  return {
+    success: true,
+    data: {
+      markdown: turndown.turndown(article.content),
+      html: loadedPage.html,
+      metadata: metadata,
+    },
+  };
+};
 
 const getMetadata = (
   document: Document,
@@ -139,26 +173,25 @@ const getMetadata = (
 ): Metadata => {
   return {
     title: document.title.trim(),
-    description:
-      document.querySelector('meta[name="description" i]')?.getAttribute("content") || null,
-    language: document.documentElement.getAttribute("lang")?.trim() || null,
-    keywords:
-      document.querySelector<HTMLMetaElement>('meta[name="keywords" i]')?.content.trim() || null,
-    robots:
-      document.querySelector<HTMLMetaElement>('meta[name="robots" i]')?.content.trim() || null,
-    ogTitle: document.querySelector('meta[property="og:title" i]')?.getAttribute("content") || null,
-    ogDescription:
-      document.querySelector('meta[property="og:description" i]')?.getAttribute("content") || null,
-    ogUrl: document.querySelector('meta[property="og:url" i]')?.getAttribute("content") || null,
-    ogImage: document.querySelector('meta[property="og:image" i]')?.getAttribute("content") || null,
+    description: getMetadataContent(document, 'meta[name="description" i]'),
+    language: document.documentElement.lang.trim() || null,
+    keywords: getMetadataContent(document, 'meta[name="keywords" i]'),
+    robots: getMetadataContent(document, 'meta[name="robots" i]'),
+    ogTitle: getMetadataContent(document, 'meta[property="og:title" i]'),
+    ogDescription: getMetadataContent(document, 'meta[property="og:description" i]'),
+    ogUrl: getMetadataContent(document, 'meta[property="og:url" i]'),
+    ogImage: getMetadataContent(document, 'meta[property="og:image" i]'),
     ogLocaleAlternate: Array.from(
       document.querySelectorAll<HTMLMetaElement>('meta[property="og:locale:alternate" i]'),
       (element) => element.content.trim(),
     ).filter(Boolean),
-    ogSiteName:
-      document.querySelector('meta[property="og:site_name" i]')?.getAttribute("content") || null,
+    ogSiteName: getMetadataContent(document, 'meta[property="og:site_name" i]'),
     sourceURL: url,
-    statusCode: statusCode,
-    contentType: contentType,
+    statusCode,
+    contentType,
   };
+};
+
+const getMetadataContent = (document: Document, selector: string): string | null => {
+  return document.querySelector<HTMLMetaElement>(selector)?.content.trim() || null;
 };
