@@ -121,11 +121,6 @@ const loadPage = async (target: URL): Promise<LoadedPage> => {
       }
       throw error;
     }
-  } catch (error) {
-    if (error instanceof errors.TimeoutError) {
-      throw new ScrapeTimeoutError(error);
-    }
-    throw error;
   } finally {
     try {
       await context.close();
@@ -136,33 +131,32 @@ const loadPage = async (target: URL): Promise<LoadedPage> => {
 };
 
 const extractPage = (loadedPage: LoadedPage): ScrapedPage => {
-  if (!loadedPage.html || !loadedPage.finalUrl) {
-    return { success: false, data: null };
-  }
-
   const dom = new JSDOM(loadedPage.html, { url: loadedPage.finalUrl });
-  const document = dom.window.document;
+  try {
+    const document = dom.window.document;
+    const metadata = getMetadata(
+      document,
+      loadedPage.finalUrl,
+      loadedPage.statusCode,
+      loadedPage.contentType,
+    );
 
-  const metadata = getMetadata(
-    document,
-    loadedPage.finalUrl,
-    loadedPage.statusCode,
-    loadedPage.contentType,
-  );
+    const article = new Readability(document).parse();
+    if (!article?.content) {
+      return { success: false, data: null };
+    }
 
-  const article = new Readability(dom.window.document).parse();
-  if (!article?.content) {
-    return { success: false, data: null };
+    return {
+      success: true,
+      data: {
+        markdown: turndown.turndown(article.content),
+        html: loadedPage.html,
+        metadata,
+      },
+    };
+  } finally {
+    dom.window.close();
   }
-
-  return {
-    success: true,
-    data: {
-      markdown: turndown.turndown(article.content),
-      html: loadedPage.html,
-      metadata: metadata,
-    },
-  };
 };
 
 const getMetadata = (
@@ -172,7 +166,7 @@ const getMetadata = (
   contentType: string | null,
 ): Metadata => {
   return {
-    title: document.title.trim(),
+    title: document.title.trim() || null,
     description: getMetadataContent(document, 'meta[name="description" i]'),
     language: document.documentElement.lang.trim() || null,
     keywords: getMetadataContent(document, 'meta[name="keywords" i]'),
