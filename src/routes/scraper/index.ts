@@ -11,11 +11,11 @@ const scraperRoute = new Hono().get("/", validateQuery, async (c) => {
   try {
     const result = await scrapePage(url);
 
-    if (!result) {
+    if (!result.success) {
       return errorResponse(c, "CONTENT_NOT_READABLE");
     }
 
-    if (output === "md") {
+    if (output === "md" && result.data) {
       return c.text(result.data.markdown, 200, {
         "Content-Type": "text/markdown; charset=UTF-8",
       });

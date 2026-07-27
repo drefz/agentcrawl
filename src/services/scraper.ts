@@ -5,21 +5,30 @@ import TurndownService from "turndown";
 
 import { assertPublicHttpUrl } from "../security/ssrf.ts";
 
+type Metadata = {
+  title: string | null;
+  description: string | null;
+  language: string | null;
+  keywords: string | null;
+  robots: string | null;
+  ogTitle: string | null;
+  ogDescription: string | null;
+  ogUrl: string | null;
+  ogImage: string | null;
+  ogLocaleAlternate: string[];
+  ogSiteName: string | null;
+  sourceURL: string;
+  statusCode: number | null;
+  contentType: string | null;
+};
+
 type ScrapedPage = {
   success: boolean;
   data: {
     html: string;
     markdown: string;
-    metadata: {
-      title: string;
-      description: string | null;
-      language: string | null;
-      image: Buffer<ArrayBufferLike> | null;
-      sourceURL: string;
-      statusCode: number | null;
-      contentType: string | null;
-    };
-  };
+    metadata: Metadata;
+  } | null;
 };
 
 export class ScrapeTimeoutError extends Error {
@@ -38,7 +47,7 @@ const turndown = new TurndownService({
   codeBlockStyle: "fenced",
 });
 
-export async function scrapePage(url: string): Promise<ScrapedPage | null> {
+export async function scrapePage(url: string): Promise<ScrapedPage> {
   const target = await assertPublicHttpUrl(url);
   const context = await browser.newContext({
     acceptDownloads: false,
@@ -91,32 +100,21 @@ export async function scrapePage(url: string): Promise<ScrapedPage | null> {
       throw error;
     }
 
-    const sourceURL = page.url();
     const html = await page.content();
-    const dom = new JSDOM(html, { url: sourceURL });
+    const dom = new JSDOM(html, { url: page.url() });
     const article = new Readability(dom.window.document).parse();
-    const image = await page.screenshot();
-    const title = await page.title();
-    const language = await page.locator("html").getAttribute("lang");
-
     if (!article?.content) {
-      return null;
+      return { success: false, data: null };
     }
+
+    const document = dom.window.document;
 
     return {
       success: true,
       data: {
         markdown: turndown.turndown(article.content),
         html: html,
-        metadata: {
-          title: title,
-          description: article.excerpt ?? null,
-          language: language,
-          image: image,
-          sourceURL: sourceURL,
-          statusCode: statusCode,
-          contentType: contentType,
-        },
+        metadata: getMetadata(document, page.url(), statusCode, contentType),
       },
     };
   } catch (error) {
@@ -132,3 +130,35 @@ export async function scrapePage(url: string): Promise<ScrapedPage | null> {
     }
   }
 }
+
+const getMetadata = (
+  document: Document,
+  url: string,
+  statusCode: number | null,
+  contentType: string | null,
+): Metadata => {
+  return {
+    title: document.title.trim(),
+    description:
+      document.querySelector('meta[name="description" i]')?.getAttribute("content") || null,
+    language: document.documentElement.getAttribute("lang")?.trim() || null,
+    keywords:
+      document.querySelector<HTMLMetaElement>('meta[name="keywords" i]')?.content.trim() || null,
+    robots:
+      document.querySelector<HTMLMetaElement>('meta[name="robots" i]')?.content.trim() || null,
+    ogTitle: document.querySelector('meta[property="og:title" i]')?.getAttribute("content") || null,
+    ogDescription:
+      document.querySelector('meta[property="og:description" i]')?.getAttribute("content") || null,
+    ogUrl: document.querySelector('meta[property="og:url" i]')?.getAttribute("content") || null,
+    ogImage: document.querySelector('meta[property="og:image" i]')?.getAttribute("content") || null,
+    ogLocaleAlternate: Array.from(
+      document.querySelectorAll<HTMLMetaElement>('meta[property="og:locale:alternate" i]'),
+      (element) => element.content.trim(),
+    ).filter(Boolean),
+    ogSiteName:
+      document.querySelector('meta[property="og:site_name" i]')?.getAttribute("content") || null,
+    sourceURL: url,
+    statusCode: statusCode,
+    contentType: contentType,
+  };
+};
