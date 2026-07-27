@@ -16,7 +16,7 @@ const scraperRoute = new Hono().get("/", validateQuery, async (c) => {
     }
 
     if (output === "md") {
-      return c.text(result.markdown, 200, {
+      return c.text(result.data.markdown, 200, {
         "Content-Type": "text/markdown; charset=UTF-8",
       });
     }

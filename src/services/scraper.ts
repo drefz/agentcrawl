@@ -6,11 +6,20 @@ import TurndownService from "turndown";
 import { assertPublicHttpUrl } from "../security/ssrf.ts";
 
 type ScrapedPage = {
-  url: string;
-  title: string;
-  byline: string | null;
-  excerpt: string | null;
-  markdown: string;
+  success: boolean;
+  data: {
+    html: string;
+    markdown: string;
+    metadata: {
+      title: string;
+      description: string | null;
+      language: string | null;
+      image: Buffer<ArrayBufferLike> | null;
+      sourceURL: string;
+      statusCode: number | null;
+      contentType: string | null;
+    };
+  };
 };
 
 export class ScrapeTimeoutError extends Error {
@@ -64,11 +73,17 @@ export async function scrapePage(url: string): Promise<ScrapedPage | null> {
       await route.continue();
     });
 
+    let statusCode: number | null = null;
+    let contentType: string | null = null;
+
     try {
-      await page.goto(target.href, {
+      const response = await page.goto(target.href, {
         waitUntil: "domcontentloaded",
         timeout: 30_000,
       });
+
+      statusCode = response?.status() ?? null;
+      contentType = (await response?.headerValue("content-type")) ?? null;
     } catch (error) {
       if (mainNavigationPolicyError) {
         throw mainNavigationPolicyError;
@@ -76,21 +91,33 @@ export async function scrapePage(url: string): Promise<ScrapedPage | null> {
       throw error;
     }
 
-    const finalUrl = page.url();
+    const sourceURL = page.url();
     const html = await page.content();
-    const dom = new JSDOM(html, { url: finalUrl });
+    const dom = new JSDOM(html, { url: sourceURL });
     const article = new Readability(dom.window.document).parse();
+    const image = await page.screenshot();
+    const title = await page.title();
+    const language = await page.locator("html").getAttribute("lang");
 
     if (!article?.content) {
       return null;
     }
 
     return {
-      url: finalUrl,
-      title: article.title ?? "",
-      byline: article.byline ?? null,
-      excerpt: article.excerpt ?? null,
-      markdown: turndown.turndown(article.content),
+      success: true,
+      data: {
+        markdown: turndown.turndown(article.content),
+        html: html,
+        metadata: {
+          title: title,
+          description: article.excerpt ?? null,
+          language: language,
+          image: image,
+          sourceURL: sourceURL,
+          statusCode: statusCode,
+          contentType: contentType,
+        },
+      },
     };
   } catch (error) {
     if (error instanceof errors.TimeoutError) {
