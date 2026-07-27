@@ -1,8 +1,9 @@
 import { Readability } from "@mozilla/readability";
 import { JSDOM } from "jsdom";
-import { chromium, errors } from "playwright";
+import { errors } from "playwright";
 import TurndownService from "turndown";
 
+import { getBrowser } from "../infrastructure/browser.ts";
 import { assertPublicHttpUrl } from "../security/ssrf.ts";
 
 type Metadata = {
@@ -44,10 +45,6 @@ export class ScrapeTimeoutError extends Error {
   }
 }
 
-const browser = await chromium.launch({
-  headless: true,
-});
-
 const turndown = new TurndownService({
   headingStyle: "atx",
   codeBlockStyle: "fenced",
@@ -70,10 +67,12 @@ export async function scrapePage(url: string): Promise<ScrapedPage> {
 }
 
 const loadPage = async (target: URL): Promise<LoadedPage> => {
+  const browser = await getBrowser();
   const context = await browser.newContext({
     acceptDownloads: false,
     serviceWorkers: "block",
   });
+
   let mainNavigationPolicyError: unknown;
 
   try {
