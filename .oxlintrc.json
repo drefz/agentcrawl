@@ -5,6 +5,7 @@
     "correctness": "error"
   },
   "rules": {},
+  "ignorePatterns": ["dist/**"],
   "env": {
     "builtin": true
   }

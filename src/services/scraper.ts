@@ -3,6 +3,8 @@ import { JSDOM } from "jsdom";
 import { chromium, errors } from "playwright";
 import TurndownService from "turndown";
 
+import { assertPublicHttpUrl } from "../security/ssrf.ts";
+
 type ScrapedPage = {
   url: string;
   title: string;
@@ -28,13 +30,51 @@ const turndown = new TurndownService({
 });
 
 export async function scrapePage(url: string): Promise<ScrapedPage | null> {
-  const page = await browser.newPage();
+  const target = await assertPublicHttpUrl(url);
+  const context = await browser.newContext({
+    acceptDownloads: false,
+    serviceWorkers: "block",
+  });
+  let mainNavigationPolicyError: unknown;
 
   try {
-    await page.goto(url, {
-      waitUntil: "domcontentloaded",
-      timeout: 30_000,
+    await context.routeWebSocket(/.*/, (webSocket) =>
+      webSocket.close({
+        code: 1008,
+        reason: "WebSockets are disabled",
+      }),
+    );
+
+    const page = await context.newPage();
+
+    await context.route("**/*", async (route) => {
+      const request = route.request();
+
+      try {
+        await assertPublicHttpUrl(request.url());
+      } catch (error) {
+        if (request.isNavigationRequest() && request.frame() === page.mainFrame()) {
+          mainNavigationPolicyError = error;
+        }
+
+        await route.abort("blockedbyclient");
+        return;
+      }
+
+      await route.continue();
     });
+
+    try {
+      await page.goto(target.href, {
+        waitUntil: "domcontentloaded",
+        timeout: 30_000,
+      });
+    } catch (error) {
+      if (mainNavigationPolicyError) {
+        throw mainNavigationPolicyError;
+      }
+      throw error;
+    }
 
     const finalUrl = page.url();
     const html = await page.content();
@@ -59,9 +99,9 @@ export async function scrapePage(url: string): Promise<ScrapedPage | null> {
     throw error;
   } finally {
     try {
-      await page.close();
+      await context.close();
     } catch (error) {
-      console.error("Failed to close Playwright page", error);
+      console.error("Failed to close Playwright context", error);
     }
   }
 }

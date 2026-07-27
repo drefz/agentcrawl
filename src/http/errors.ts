@@ -5,6 +5,10 @@ const ERROR_DEFINITIONS = {
     status: 400,
     message: "Invalid query parameters",
   },
+  UNSAFE_TARGET: {
+    status: 400,
+    message: "URL target is not allowed",
+  },
   NOT_FOUND: {
     status: 404,
     message: "Route not found",
